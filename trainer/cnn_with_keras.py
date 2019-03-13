@@ -11,34 +11,24 @@ from tensorflow.python.lib.io import file_io
 
 K.set_image_data_format('channels_last')
 
+
 def model(input_shape):
-##First input
+    # First input
     X_input = Input(input_shape)
 
-    ##Convolutional Layer 1
-    X = Conv2D(
-    filters=32,
-    kernel_size=(5, 5),
-    strides=(1, 1),
-    padding='same',
-    name = 'conv1'
-    )(X_input)
+    # Convolutional Layer 1
+    X = Conv2D(filters=32, kernel_size=(5, 5), strides=(1, 1), padding='same', name='conv1')(X_input)
     X = Activation('relu')(X)
 
-    ##Max pooling layer 1
-    X = MaxPooling2D(pool_size=(2, 2), strides =2, name = 'maxpool1')(X)
+    # Max pooling layer 1
+    X = MaxPooling2D(pool_size=(2, 2), strides=2, name='maxpool1')(X)
 
-    ##Convolutional Layer 2
-    X = Conv2D(
-    filters=64,
-    kernel_size=[5,5],
-    padding='same',
-    name = 'conv2'
-    )(X)
+    # Convolutional Layer 2
+    X = Conv2D(filters=64, kernel_size=[5, 5], padding='same', name='conv2')(X)
     X = Activation('relu')(X)
 
     ##Max Pooling Layer 2
-    X = MaxPooling2D(pool_size=(2, 2), strides =2, name = 'maxpool2')(X)
+    X = MaxPooling2D(pool_size=(2, 2), strides=2, name='maxpool2')(X)
 
     ##Flatten
     X = Flatten()(X)
@@ -47,13 +37,13 @@ def model(input_shape):
     X = Dense(1024, activation='relu', name='dense_1')(X)
 
     ##Dropout layer
-    X = Dropout(0.4, name = 'dropout')(X)
+    X = Dropout(0.4, name='dropout')(X)
 
     ##dense 2 layer
-    X = Dense(10, activation='softmax', name ='dense_2')(X)
+    X = Dense(10, activation='softmax', name='dense_2')(X)
 
     ##The model object
-    model = Model(inputs = X_input, outputs = X, name='cnnMINSTModel')
+    model = Model(inputs=X_input, outputs=X, name='cnnMINSTModel')
 
     return model
 
