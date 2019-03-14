@@ -1,13 +1,13 @@
 import argparse
 from trainer.dataset import Dataset
-from trainer.models.aging_model import AgingModel
+from trainer.models.test_model import TestModel
 
 
 def main(job_dir, dataset_url, **args):
     data = []  # TODO get data from API
     dataset = Dataset(dataset_url, data)
 
-    aging_model = AgingModel()
+    aging_model = TestModel()
 
     aging_model.train(dataset, job_dir + "/logs/tensorboard")
 
