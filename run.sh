@@ -6,9 +6,11 @@ then
         --module-name=trainer.trainer \
         --package-path=./trainer \
         --job-dir=gs://cs2xb3_ml/"$1" \
-        --dataset_url=gs://cs2xb3_ml/path/to/dataset \
         --region=us-east1 \
-        --config=trainer/cloudml-gpu.yaml
+        --config=trainer/cloudml-gpu.yaml \
+        -- \
+        --dataset_url=gs://cs2xb3_ml/path/to/dataset \
+
 else
     echo "Must include JOB ID"
 fi
