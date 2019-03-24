@@ -3,6 +3,7 @@ import keras
 from keras.models import Model, Sequential
 from keras.layers import Input, Concatenate, BatchNormalization, Lambda, Activation, Reshape, Conv2D, Deconv2D, ReLU, LeakyReLU
 from keras import callbacks
+from keras.optimizers import Adam
 from keras import backend as K
 import tensorflow as tf
 from tensorflow.python.lib.io import file_io
@@ -24,6 +25,22 @@ class CGANModel(AgingModel):
         print(self.generator)
 
         self.discriminator = self.build_discriminator()
+        self.discriminator.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5), metrics=['accuracy'])
+        # Discriminator is not trainable in the combined model
+        self.discriminator.trainable = False
+
+        input_z = Input(shape=(self.latent_dim,))
+        input_y = Input(shape=(self.num_classes,))
+
+        output_x = self.generator([input_z, input_y])
+        output_o = self.discriminator([output_x, input_y])
+
+        self.gan = Model([input_z, input_y], output_o)
+
+        print('--- GAN ---')
+        self.gan.summary()
+
+        self.gan.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5))
 
     def train(self, dataset, log_dir):
         pass
