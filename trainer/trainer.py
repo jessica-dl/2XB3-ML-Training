@@ -1,13 +1,13 @@
 import argparse
 from trainer.dataset import Dataset
-from trainer.models.test_model import TestModel
+from trainer.models.cgan_model import CGANModel
 
 
 def main(job_dir, dataset_url, **args):
     data = []  # TODO get data from API
     dataset = Dataset(dataset_url, data)
 
-    aging_model = TestModel()
+    aging_model = CGANModel()
 
     aging_model.train(dataset, job_dir + "/logs/tensorboard")
 
@@ -15,6 +15,8 @@ def main(job_dir, dataset_url, **args):
 
 
 if __name__ == "__main__":
+    main("", "")
+
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--job-dir",
