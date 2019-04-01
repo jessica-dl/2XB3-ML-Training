@@ -5,4 +5,5 @@ trainer\dataset.py
 trainer\trainer.py
 trainer\models\__init__.py
 trainer\models\aging_model.py
+trainer\models\cgan_model.py
 trainer\models\test_model.py

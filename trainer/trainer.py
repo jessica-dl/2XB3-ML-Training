@@ -11,11 +11,12 @@ def main(job_dir, dataset_url, **args):
 
     aging_model.train(dataset, job_dir + "/logs/tensorboard")
 
-    aging_model.save(job_dir + "/model.h5")
+    aging_model.save(job_dir + "/")
 
 
 if __name__ == "__main__":
-    main("", "")
+    # main("", "")
+    # exit()
 
     parser = argparse.ArgumentParser()
 
