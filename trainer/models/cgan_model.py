@@ -27,7 +27,7 @@ class CGANModel(AgingModel):
         self.latent_dim = 100
 
         self.__build_gan()
-        # self.__build_encoding()
+        self.__build_encoding()
 
     def __build_gan(self):
         optimizer = Adam(0.0002, 0.5)
@@ -62,8 +62,140 @@ class CGANModel(AgingModel):
 
     def __build_encoding(self):
         self.encoder = self.build_encoder()
-        self.generator = self.build_generator()
-        self.generator.trainable = False
+
+        self.encoder.compile(loss='crossentropy', optimizer=Adam(0.0001, 0.5))
+
+    def build_generator(self):
+        # Input
+        latent_z = Input(shape=(self.latent_dim,))
+        label_y = Input(shape=(self.num_classes,))
+        x = Concatenate()([latent_z, label_y])
+        x = Reshape(target_shape=(1, 1, -1))(x)
+
+        # Full Conv 1
+        x = Deconv2D(kernel_size=[4, 4], strides=(2, 2), filters=512)(x)
+        x = BatchNormalization()(x)
+        x = ReLU()(x)
+
+        # Full Conv 2
+        x = Deconv2D(kernel_size=[4, 4], strides=(2, 2), filters=256, padding='same')(x)
+        x = BatchNormalization()(x)
+        x = ReLU()(x)
+
+        # Full Conv 3
+        x = Deconv2D(kernel_size=[4, 4], strides=(2, 2), filters=128, padding='same')(x)
+        x = BatchNormalization()(x)
+        x = ReLU()(x)
+        # Full Conv 4
+        x = Deconv2D(kernel_size=[4, 4], strides=(2, 2), filters=64, padding='same')(x)
+        x = BatchNormalization()(x)
+        x = ReLU()(x)
+
+        # Full Conv 5
+        x = Deconv2D(kernel_size=[4, 4], strides=(2, 2), filters=self.img_channels, padding='same')(x)
+        x = Activation(activation='tanh')(x)
+
+        model = Model([latent_z, label_y], x)
+
+        print('--- GENERATOR ---')
+        model.summary()
+
+        return model
+
+    def build_discriminator(self):
+        input_image_x = Input(self.img_shape)
+        input_labels_y = Input(shape=(self.num_classes,))
+
+        # Replicate y
+        labels_y = Reshape(target_shape=(1, 1, -1))(input_labels_y)
+        labels_y = Lambda(K.tile, arguments={'n': (1, self.img_rows // 2, self.img_rows // 2, self.num_classes)})(
+            labels_y)
+
+        # Conv 1
+        x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=64, padding='same')(input_image_x)
+        x = Dropout(0.4)(x)
+        x = LeakyReLU()(x)
+
+        # Concat y
+        x = Concatenate()([x, labels_y])
+
+        # Conv 2
+        x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=128, padding='same')(x)
+        x = Dropout(0.4)(x)
+        x = BatchNormalization()(x)
+        x = LeakyReLU()(x)
+
+        # Conv 3
+        x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=256, padding='same')(x)
+        x = Dropout(0.4)(x)
+        x = BatchNormalization()(x)
+        x = LeakyReLU()(x)
+
+        # Conv 4
+        x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=512, padding='same')(x)
+        x = Dropout(0.4)(x)
+        x = BatchNormalization()(x)
+        x = LeakyReLU()(x)
+
+        # Conv 5
+        x = Conv2D(kernel_size=(4, 4), strides=(1, 1), filters=1)(x)
+        x = Activation(activation='sigmoid')(x)
+
+        x = Flatten()(x)
+
+        model = Model([input_image_x, input_labels_y], x)
+
+        print('--- DISCRIMINATOR ---')
+        model.summary()
+
+        return model
+
+    def build_encoder(self):
+
+        input_image_x = Input(self.img_shape)
+
+        # Conv 1
+        x = Conv2D(kernel_size=(5, 5), strides=(2, 2), filters=32)(input_image_x)
+        x = ReLU()(x)
+        x = BatchNormalization()(x)
+
+        # Conv 2
+        x = Conv2D(kernel_size=(5, 5), strides=(2, 2), filters=64)(x)
+        x = ReLU()(x)
+        x = BatchNormalization()(x)
+
+        # Conv 3
+        x = Conv2D(kernel_size=(5, 5), strides=(2, 2), filters=128)(x)
+        x = ReLU()(x)
+        x = BatchNormalization()(x)
+
+        # Conv 4
+        x = Conv2D(kernel_size=(5, 5), strides=(2, 2), filters=256)(x)
+        x = ReLU()(x)
+        x = BatchNormalization()(x)
+
+        # FC 1
+        x = Dense(4096)(x)
+        x = ReLU()(x)
+        x = BatchNormalization()(x)
+
+        # FC 2
+        x = Dense(self.latent_dim)(x)
+
+        model = Model([input_image_x], x)
+
+        print('--- ENCODER ---')
+        model.summary()
+
+        return model
+
+    def build_facenet(self):
+        model = load_model('facenet_keras.h5')
+
+        print('--- FACENET ---')
+        model.summary()
+
+        return model
 
     def train(self, dataset, log_dir):
         self.train_phase1()
@@ -155,152 +287,6 @@ class CGANModel(AgingModel):
 
     def train_phase2(self):
         pass
-
-    def build_generator(self):
-        # Input
-        latent_z = Input(shape=(self.latent_dim,))
-        label_y = Input(shape=(self.num_classes,))
-        x = Concatenate()([latent_z, label_y])
-        x = Reshape(target_shape=(1, 1, -1))(x)
-
-        # Full Conv 1
-        x = Deconv2D(kernel_size=[4, 4], strides=(2, 2), filters=512)(x)
-        x = BatchNormalization()(x)
-        x = ReLU()(x)
-
-        # Full Conv 2
-        x = Deconv2D(kernel_size=[4, 4], strides=(2, 2), filters=256, padding='same')(x)
-        x = BatchNormalization()(x)
-        x = ReLU()(x)
-
-        # Full Conv 3
-        x = Deconv2D(kernel_size=[4, 4], strides=(2, 2), filters=128, padding='same')(x)
-        x = BatchNormalization()(x)
-        x = ReLU()(x)
-        # Full Conv 4
-        x = Deconv2D(kernel_size=[4, 4], strides=(2, 2), filters=64, padding='same')(x)
-        x = BatchNormalization()(x)
-        x = ReLU()(x)
-
-        # Full Conv 5
-        x = Deconv2D(kernel_size=[4, 4], strides=(2, 2), filters=self.img_channels, padding='same')(x)
-        x = Activation(activation='tanh')(x)
-
-        model = Model([latent_z, label_y], x)
-
-        print('--- GENERATOR ---')
-        model.summary()
-
-        return model
-
-    def generator_samples(self, num_samples=3):
-        for c in range(self.num_classes):
-            for i in range(num_samples):
-                noise = np.random.normal(0, 1, (1, self.latent_dim))
-                label = np.zeros((1, self.num_classes))
-                label[0][c] = 1
-                output_img = self.generator.predict([noise, label])[0]
-
-                filename = 'sample' + str(i) + '-' + str(c) + '.png'
-                cv2.imwrite(filename, np.dstack(3*[((output_img + 1) * 255).astype(np.uint8)]))
-
-                with file_io.FileIO(filename, mode='rb') as input_f:
-                    with file_io.FileIO(self.filepath + 'samples/' + filename, mode='wb+') as output_f:
-                        output_f.write(input_f.read())
-
-    def build_discriminator(self):
-        input_image_x = Input(self.img_shape)
-        input_labels_y = Input(shape=(self.num_classes,))
-
-        # Replicate y
-        labels_y = Reshape(target_shape=(1, 1, -1))(input_labels_y)
-        labels_y = Lambda(K.tile, arguments={'n': (1, self.img_rows // 2, self.img_rows // 2, self.num_classes)})(labels_y)
-
-        # Conv 1
-        x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=64, padding='same')(input_image_x)
-        x = Dropout(0.4)(x)
-        x = LeakyReLU()(x)
-
-        # Concat y
-        x = Concatenate()([x, labels_y])
-
-        # Conv 2
-        x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=128, padding='same')(x)
-        x = Dropout(0.4)(x)
-        x = BatchNormalization()(x)
-        x = LeakyReLU()(x)
-
-        # Conv 3
-        x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=256, padding='same')(x)
-        x = Dropout(0.4)(x)
-        x = BatchNormalization()(x)
-        x = LeakyReLU()(x)
-
-        # Conv 4
-        x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=512, padding='same')(x)
-        x = Dropout(0.4)(x)
-        x = BatchNormalization()(x)
-        x = LeakyReLU()(x)
-
-        # Conv 5
-        x = Conv2D(kernel_size=(4, 4), strides=(1, 1), filters=1)(x)
-        x = Activation(activation='sigmoid')(x)
-
-        x = Flatten()(x)
-
-        model = Model([input_image_x, input_labels_y], x)
-
-        print('--- DISCRIMINATOR ---')
-        model.summary()
-
-        return model
-
-    def build_encoder(self):
-
-        input_image_x = Input(self.img_shape)
-
-        # Conv 1
-        x = Conv2D(kernel_size=(5, 5), strides=(2, 2), filters=32)(input_image_x)
-        x = ReLU()(x)
-        x = BatchNormalization()(x)
-
-        # Conv 2
-        x = Conv2D(kernel_size=(5, 5), strides=(2, 2), filters=64)(x)
-        x = ReLU()(x)
-        x = BatchNormalization()(x)
-
-        # Conv 3
-        x = Conv2D(kernel_size=(5, 5), strides=(2, 2), filters=128)(x)
-        x = ReLU()(x)
-        x = BatchNormalization()(x)
-
-        # Conv 4
-        x = Conv2D(kernel_size=(5, 5), strides=(2, 2), filters=256)(x)
-        x = ReLU()(x)
-        x = BatchNormalization()(x)
-
-        # FC 1
-        x = Dense(4096)(x)
-        x = ReLU()(x)
-        x = BatchNormalization()(x)
-
-        # FC 2
-        x = Dense(self.latent_dim)(x)
-
-        model = Model([input_image_x], x)
-
-        print('--- ENCODER ---')
-        model.summary()
-
-        return model
-
-    def build_facenet(self):
-        model = load_model('facenet_keras.h5')
-
-        print('--- FACENET ---')
-        model.summary()
-
-        return model
 
     def save(self):
         self.save_model(self.generator, 'generator')

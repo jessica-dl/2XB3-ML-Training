@@ -11,8 +11,6 @@ def main(job_dir, dataset_url, **args):
 
     aging_model.train_gpu(dataset, job_dir + "/logs/tensorboard")
 
-    aging_model.generator_samples()
-
     aging_model.save()
 
 
