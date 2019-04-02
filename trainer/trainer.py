@@ -9,7 +9,7 @@ def main(job_dir, dataset_url, **args):
 
     aging_model = CGANModel(job_dir + "/")
 
-    aging_model.train(dataset, job_dir + "/logs/tensorboard")
+    aging_model.train_gpu(dataset, job_dir + "/logs/tensorboard")
 
     aging_model.generator_samples()
 
@@ -17,8 +17,8 @@ def main(job_dir, dataset_url, **args):
 
 
 if __name__ == "__main__":
-    main("", "")
-    exit()
+    # main("", "")
+    # exit()
 
     parser = argparse.ArgumentParser()
 

@@ -194,6 +194,7 @@ class CGAN():
         r, c = 2, 5
         noise = np.random.normal(0, 1, (r * c, 100))
         sampled_labels = keras.utils.to_categorical(np.arange(0, 10), 10)
+        print(sampled_labels)
 
         gen_imgs = self.generator.predict([noise, sampled_labels])
 

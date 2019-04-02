@@ -9,6 +9,7 @@ setup(name='trainer',
           'keras',
           'h5py',
           'numpy',
-          'opencv-python'
+          'opencv-python',
+          'matplotlib'
       ],
       zip_safe=False)
