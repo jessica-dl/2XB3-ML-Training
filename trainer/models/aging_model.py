@@ -6,5 +6,5 @@ class AgingModel:
     def train(self, dataset, log_dir):
         pass
 
-    def save(self, filepath):
+    def save(self):
         pass

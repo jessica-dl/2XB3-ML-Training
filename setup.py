@@ -8,6 +8,7 @@ setup(name='trainer',
           'tensorflow',
           'keras',
           'h5py',
-          'numpy'
+          'numpy',
+          'opencv-python'
       ],
       zip_safe=False)

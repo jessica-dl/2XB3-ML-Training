@@ -7,16 +7,18 @@ def main(job_dir, dataset_url, **args):
     data = []  # TODO get data from API
     dataset = Dataset(dataset_url, data)
 
-    aging_model = CGANModel()
+    aging_model = CGANModel(job_dir + "/")
 
     aging_model.train(dataset, job_dir + "/logs/tensorboard")
 
-    aging_model.save(job_dir + "/")
+    aging_model.generator_samples()
+
+    aging_model.save()
 
 
 if __name__ == "__main__":
-    # main("", "")
-    # exit()
+    main("", "")
+    exit()
 
     parser = argparse.ArgumentParser()
 

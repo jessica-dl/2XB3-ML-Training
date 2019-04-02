@@ -2,19 +2,21 @@ from trainer.models.aging_model import AgingModel
 import keras
 from keras.models import Model
 from keras.layers import Input, Concatenate, BatchNormalization, Lambda, Activation, Reshape, Conv2D, Deconv2D, ReLU, \
-    LeakyReLU, Dense, Flatten
+    LeakyReLU, Dense, Flatten, Dropout
 from keras.datasets import mnist
 from keras.models import load_model
 from keras.optimizers import Adam
 from keras import backend as K
 from tensorflow.python.lib.io import file_io
 import numpy as np
+import cv2
 
 
 class CGANModel(AgingModel):
 
-    def __init__(self):
+    def __init__(self, filepath):
         super(CGANModel, self).__init__()
+        self.filepath = filepath
         self.img_rows = 64
         self.img_cols = 64
         self.img_channels = 1
@@ -26,10 +28,12 @@ class CGANModel(AgingModel):
         self.__build_encoding()
 
     def __build_gan(self):
+        self.discriminator = self.build_discriminator()
+
+        self.discriminator.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5), metrics=['accuracy'])
+
         self.generator = self.build_generator()
 
-        self.discriminator = self.build_discriminator()
-        self.discriminator.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5), metrics=['accuracy'])
         # Discriminator is not trainable in the combined model
         self.discriminator.trainable = False
 
@@ -44,7 +48,7 @@ class CGANModel(AgingModel):
         print('--- GAN ---')
         self.gan.summary()
 
-        self.gan.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5))
+        self.gan.compile(loss='binary_crossentropy', optimizer=Adam(0.0001, 0.5))
 
     def __build_encoding(self):
         self.encoder = self.build_encoder()
@@ -60,10 +64,15 @@ class CGANModel(AgingModel):
         # Configure input
         x_train = (x_train.astype(np.float32) - 127.5) / 127.5
         x_train = np.expand_dims(x_train, axis=3)
-        x_padding = np.zeros((60000, 64, 64, 1))
+        x_padding = np.zeros((60000, 64, 64, 1)) - 1
         x_padding[:, :28, :28, :] = x_train
         x_train = x_padding
         y_train = keras.utils.np_utils.to_categorical(y_train, 10)
+
+        print(x_train[0])
+        # cv2.imshow('test', np.dstack(3*[((x_train[0] + 1) * 255).astype(np.uint8)]))
+        # cv2.waitKey(0)
+        print(y_train[0])
 
         # Adversarial ground truths
         valid = np.ones((batch_size, 1))
@@ -85,7 +94,12 @@ class CGANModel(AgingModel):
             # Generate a half batch of new images
             gen_imgs = self.generator.predict([noise, labels])
 
+            cv2.imshow('test', np.dstack(3*[((gen_imgs[0] + 1) * 255).astype(np.uint8)]))
+            cv2.waitKey(100)
+
             # Train the discriminator
+            # print('real:', self.discriminator.predict([imgs, labels])[:5])
+            # print('fake', self.discriminator.predict([gen_imgs, labels])[:5])
             d_loss_real = self.discriminator.train_on_batch([imgs, labels], valid)
             d_loss_fake = self.discriminator.train_on_batch([gen_imgs, labels], fake)
             d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
@@ -98,6 +112,8 @@ class CGANModel(AgingModel):
             sampled_labels = keras.utils.to_categorical(np.random.randint(0, 10, batch_size), 10)
 
             # Train the generator
+            # g_out = self.gan.predict([noise, sampled_labels])
+            # print('g_out', g_out[:5])
             g_loss = self.gan.train_on_batch([noise, sampled_labels], valid)
 
             # Plot the progress
@@ -143,6 +159,21 @@ class CGANModel(AgingModel):
 
         return model
 
+    def generator_samples(self, num_samples=3):
+        for c in range(self.num_classes):
+            for i in range(num_samples):
+                noise = np.random.normal(0, 1, (1, self.latent_dim))
+                label = np.zeros((1, self.num_classes))
+                label[0][c] = 1
+                output_img = self.generator.predict([noise, label])[0]
+
+                filename = 'sample' + str(i) + '-' + str(c) + '.png'
+                cv2.imwrite(filename, np.dstack(3*[((output_img + 1) * 255).astype(np.uint8)]))
+
+                with file_io.FileIO(filename, mode='rb') as input_f:
+                    with file_io.FileIO(self.filepath + 'samples/' + filename, mode='wb+') as output_f:
+                        output_f.write(input_f.read())
+
     def build_discriminator(self):
         input_image_x = Input(self.img_shape)
         input_labels_y = Input(shape=(self.num_classes,))
@@ -153,6 +184,7 @@ class CGANModel(AgingModel):
 
         # Conv 1
         x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=64, padding='same')(input_image_x)
+        x = Dropout(0.4)(x)
         x = LeakyReLU()(x)
 
         # Concat y
@@ -160,16 +192,19 @@ class CGANModel(AgingModel):
 
         # Conv 2
         x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=128, padding='same')(x)
+        x = Dropout(0.4)(x)
         x = BatchNormalization()(x)
         x = LeakyReLU()(x)
 
         # Conv 3
         x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=256, padding='same')(x)
+        x = Dropout(0.4)(x)
         x = BatchNormalization()(x)
         x = LeakyReLU()(x)
 
         # Conv 4
         x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=512, padding='same')(x)
+        x = Dropout(0.4)(x)
         x = BatchNormalization()(x)
         x = LeakyReLU()(x)
 
@@ -233,17 +268,17 @@ class CGANModel(AgingModel):
 
         return model
 
-    def save(self, filepath):
-        self.save_model(self.generator, 'generator', filepath)
-        self.save_model(self.discriminator, 'discriminator', filepath)
-        self.save_model(self.encoder, 'encoder', filepath)
+    def save(self):
+        self.save_model(self.generator, 'generator')
+        self.save_model(self.discriminator, 'discriminator')
+        self.save_model(self.encoder, 'encoder')
 
-    def save_model(self, model, name, filepath):
+    def save_model(self, model, name):
         filename = name + '.h5'
 
         model.save(filename)
         with file_io.FileIO(filename, mode='rb') as input_f:
-            with file_io.FileIO(filepath + filename, mode='wb+') as output_f:
+            with file_io.FileIO(self.filepath + 'models/' + filename, mode='wb+') as output_f:
                 output_f.write(input_f.read())
 
 
