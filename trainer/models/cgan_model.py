@@ -1,4 +1,3 @@
-from trainer.models.aging_model import AgingModel
 import keras
 from keras.models import Model
 from keras.layers import Input, Concatenate, BatchNormalization, Lambda, Activation, Reshape, Conv2D, Deconv2D, ReLU, \
@@ -9,19 +8,23 @@ from keras.optimizers import Adam
 from keras import backend as K
 from tensorflow.python.lib.io import file_io
 import numpy as np
-import cv2
 import matplotlib.pyplot as plt
 import tensorflow as tf
+import os
 
 
-class CGANModel(AgingModel):
+class CGANModel:
 
-    def __init__(self, filepath):
-        super(CGANModel, self).__init__()
+    def __init__(self, filepath, local=False, generator_weights=None, discriminator_weights=None, encoder_weights=None):
         self.filepath = filepath
+        self.local = local
+        self.generator_weights = generator_weights
+        self.discriminator_weights = discriminator_weights
+        self.encoder_weights = encoder_weights
+
         self.img_rows = 64
         self.img_cols = 64
-        self.img_channels = 1
+        self.img_channels = 1  # 3
         self.img_shape = (self.img_rows, self.img_cols, self.img_channels)
         self.num_classes = 10  # 6
         self.latent_dim = 100
@@ -33,13 +36,13 @@ class CGANModel(AgingModel):
         optimizer = Adam(0.0002, 0.5)
 
         # Build and compile the discriminator
-        self.discriminator = self.build_discriminator()
+        self.discriminator = self.__build_discriminator()
         self.discriminator.compile(loss=['binary_crossentropy'],
                                    optimizer=optimizer,
                                    metrics=['accuracy'])
 
         # Build the generator
-        self.generator = self.build_generator()
+        self.generator = self.__build_generator()
 
         # The generator takes noise and the target label as input
         # and generates the corresponding digit of that label
@@ -61,11 +64,11 @@ class CGANModel(AgingModel):
                          optimizer=optimizer)
 
     def __build_encoding(self):
-        self.encoder = self.build_encoder()
+        self.encoder = self.__build_encoder()
 
-        self.encoder.compile(loss='crossentropy', optimizer=Adam(0.0001, 0.5))
+        self.encoder.compile(loss='mse', optimizer=Adam(0.0001, 0.5))
 
-    def build_generator(self):
+    def __build_generator(self):
         # Input
         latent_z = Input(shape=(self.latent_dim,))
         label_y = Input(shape=(self.num_classes,))
@@ -100,9 +103,12 @@ class CGANModel(AgingModel):
         print('--- GENERATOR ---')
         model.summary()
 
+        if self.generator_weights is not None:
+            self.__load_weights(model, self.generator_weights)
+
         return model
 
-    def build_discriminator(self):
+    def __build_discriminator(self):
         input_image_x = Input(self.img_shape)
         input_labels_y = Input(shape=(self.num_classes,))
 
@@ -145,12 +151,15 @@ class CGANModel(AgingModel):
 
         model = Model([input_image_x, input_labels_y], x)
 
+        if self.discriminator_weights is not None:
+            self.__load_weights(model, self.discriminator_weights)
+
         print('--- DISCRIMINATOR ---')
         model.summary()
 
         return model
 
-    def build_encoder(self):
+    def __build_encoder(self):
 
         input_image_x = Input(self.img_shape)
 
@@ -182,14 +191,19 @@ class CGANModel(AgingModel):
         # FC 2
         x = Dense(self.latent_dim)(x)
 
+        x = Flatten()(x)
+
         model = Model([input_image_x], x)
+
+        if self.encoder_weights is not None:
+            self.__load_weights(model, self.encoder_weights)
 
         print('--- ENCODER ---')
         model.summary()
 
         return model
 
-    def build_facenet(self):
+    def __build_facenet(self):
         model = load_model('facenet_keras.h5')
 
         print('--- FACENET ---')
@@ -198,37 +212,28 @@ class CGANModel(AgingModel):
         return model
 
     def train(self, dataset, log_dir):
-        self.train_phase1()
+        # self.train_phase1(dataset)
+        self.train_phase2(dataset)
 
     def train_gpu(self, dataset, log_dir):
         with tf.device('/device:GPU:0'):
             self.train(dataset, log_dir)
 
-    def train_phase1(self, epochs=2000, batch_size=128, sample_interval=100):
-        # Load the dataset
-        (X_train, y_train), (_, _) = mnist.load_data()
-
-        # Configure input
-        X_train = (X_train.astype(np.float32) - 127.5) / 127.5
-        X_train = np.expand_dims(X_train, axis=3)
-        x_padding = np.zeros((60000, 64, 64, 1)) - 1
-        x_padding[:, :28, :28, :] = X_train
-        X_train = x_padding
-        y_train = keras.utils.np_utils.to_categorical(y_train, 10)
+    def train_phase1(self, dataset, epochs=10, batch_size=128, checkpoint_interval=10):
 
         # Adversarial ground truths
         valid = np.ones((batch_size, 1))
         fake = np.zeros((batch_size, 1))
 
-        for epoch in range(epochs):
+        for epoch in range(epochs + 1):
 
             # ---------------------
             #  Train Discriminator
             # ---------------------
 
             # Select a random half batch of images
-            idx = np.random.randint(0, X_train.shape[0], batch_size)
-            imgs, labels = X_train[idx], y_train[idx]
+            idx = np.random.randint(0, dataset.x.shape[0], batch_size)
+            imgs, labels = dataset.x[idx], dataset.y[idx]
 
             # Sample noise as generator input
             noise = np.random.normal(0, 1, (batch_size, 100))
@@ -255,13 +260,42 @@ class CGANModel(AgingModel):
             print("%d [D loss: %f, acc.: %.2f%%] [G loss: %f]" % (epoch, d_loss[0], 100 * d_loss[1], g_loss))
 
             # If at save interval => save generated image samples
-            if epoch % sample_interval == 0:
-                self.sample_images(epoch)
+            if epoch % checkpoint_interval == 0 and epoch > 0:
+                self.sample_generator_images(epoch)
+                self.save(epoch)
 
-    def sample_images(self, epoch):
-        r, c = 2, 5
-        noise = np.random.normal(0, 1, (r * c, 100))
-        sampled_labels = keras.utils.to_categorical(np.arange(0, 10), 10)
+    def train_phase2(self, dataset, epochs=2000, train_samples=10000, batch_size=128, checkpoint_interval=10):
+
+        # -----------------------
+        # Create Fake Dataset
+        # -----------------------
+        print('Generating Encoder Dataset')
+        x = None
+        z = None
+        while x is None or x.shape[0] < train_samples:
+            noise = np.random.normal(0, 1, (batch_size, 100))
+            sampled_labels = keras.utils.to_categorical(np.random.randint(0, 10, batch_size), 10)
+
+            next_batch = self.generator.predict([noise, sampled_labels])
+            x = next_batch if x is None else np.concatenate([x, next_batch])
+            z = noise if z is None else np.concatenate([z, noise])
+            print("[%d/%d]" % (x.shape[0], train_samples))
+
+        for epoch in range(epochs + 1):
+            e_loss = self.encoder.train_on_batch(x, z)
+
+            # Plot the progress
+            print("%d [E loss: %f]" % (epoch, e_loss))
+
+            # If at save interval => save generated image samples
+            if epoch % checkpoint_interval == 0 and epoch > 0:
+                self.sample_encoder_images(dataset, epoch)
+                self.save(epoch)
+
+    def sample_generator_images(self, epoch):
+        r, c = 2, self.num_classes // 2
+        noise = np.random.normal(0, 1, (r * c, self.latent_dim))
+        sampled_labels = keras.utils.to_categorical(np.arange(0, self.num_classes), self.num_classes)
 
         gen_imgs = self.generator.predict([noise, sampled_labels])
 
@@ -273,33 +307,105 @@ class CGANModel(AgingModel):
         for i in range(r):
             for j in range(c):
                 axs[i, j].imshow(gen_imgs[cnt, :, :, 0], cmap='gray')
-                axs[i, j].set_title("Digit: %d" % np.argmax(sampled_labels[cnt]))
+                axs[i, j].set_title("Label: %d" % np.argmax(sampled_labels[cnt]))
                 axs[i, j].axis('off')
                 cnt += 1
 
-        filename = "%d.png" % epoch
+        filename = "G%s.png" % str(epoch).zfill(8)
         fig.savefig(filename)
         plt.close()
+
+        # Local dirs are not automatically created
+        if self.local:
+            try:
+                os.makedirs(self.filepath + 'samples/')
+            except FileExistsError:
+                pass
 
         with file_io.FileIO(filename, mode='rb') as input_f:
             with file_io.FileIO(self.filepath + 'samples/' + filename, mode='wb+') as output_f:
                 output_f.write(input_f.read())
 
-    def train_phase2(self):
-        pass
+        # Clean up local file
+        os.remove(filename)
 
-    def save(self):
-        self.save_model(self.generator, 'generator')
-        self.save_model(self.discriminator, 'discriminator')
-        self.save_model(self.encoder, 'encoder')
+    def sample_encoder_images(self, dataset, epoch):
+        # TODO REWORK TO ACTUALLY TEST ENCODER
+        r, c = 4, 6
+
+        # Select a random set of images
+        idx = np.random.randint(0, dataset.x.shape[0], r * c)
+        imgs, labels = dataset.x[idx], dataset.y[idx]
+
+        # Encode and regen images
+        z = self.encoder.predict(imgs)
+        gen_imgs = self.generator.predict([z, labels])
+
+        # Rescale images 0 - 1
+        gen_imgs = 0.5 * gen_imgs + 0.5
+
+        fig, axs = plt.subplots(r, c)
+        cnt = 0
+        for i in range(r):
+            for j in range(c):
+                axs[i, j].imshow(gen_imgs[cnt, :, :, 0], cmap='gray')
+                axs[i, j].set_title("Label: %d" % np.argmax(labels[cnt]))
+                axs[i, j].axis('off')
+                cnt += 1
+
+        filename = "E%s.png" % str(epoch).zfill(8)
+        fig.savefig(filename)
+        plt.close()
+
+        # Local dirs are not automatically created
+        if self.local:
+            try:
+                os.makedirs(self.filepath + 'samples/')
+            except FileExistsError:
+                pass
+
+        with file_io.FileIO(filename, mode='rb') as input_f:
+            with file_io.FileIO(self.filepath + 'samples/' + filename, mode='wb+') as output_f:
+                output_f.write(input_f.read())
+
+        # Clean up local file
+        os.remove(filename)
+
+    def save(self, epoch=None):
+        self.save_model(self.generator, 'generator' + ('-' + str(epoch) if epoch else ''))
+        self.save_model(self.discriminator, 'discriminator' + ('-' + str(epoch) if epoch else ''))
+        self.save_model(self.encoder, 'encoder' + ('-' + str(epoch) if epoch else ''))
 
     def save_model(self, model, name):
         filename = name + '.h5'
+
+        # Local dirs are not automatically created
+        if self.local:
+            try:
+                os.makedirs(self.filepath + 'models/')
+            except FileExistsError:
+                pass
 
         model.save(filename)
         with file_io.FileIO(filename, mode='rb') as input_f:
             with file_io.FileIO(self.filepath + 'models/' + filename, mode='wb+') as output_f:
                 output_f.write(input_f.read())
+
+        # Clean up local file
+        os.remove(filename)
+
+    def __load_weights(self, model, filepath):
+        if not self.local:
+            with file_io.FileIO(filepath, mode='rb') as weights_f:
+                with open('weights.h5', 'wb') as local_weights:
+                    local_weights.write(weights_f.read())
+            filepath = 'weight.h5'
+
+        model.load_weights(filepath)
+
+
+
+
 
 
 

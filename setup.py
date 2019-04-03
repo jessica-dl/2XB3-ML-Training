@@ -10,6 +10,7 @@ setup(name='trainer',
           'h5py',
           'numpy',
           'opencv-python',
-          'matplotlib'
+          'matplotlib',
+          'h5py'
       ],
       zip_safe=False)
