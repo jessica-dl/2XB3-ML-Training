@@ -10,8 +10,6 @@ def main(job_dir, dataset_path=None, local=False, generator_weights=None, discri
 
     aging_model.train_gpu(dataset, job_dir + "/logs/tensorboard")
 
-    aging_model.save()
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -11,6 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import os
+import gc
 
 
 class CGANModel:
@@ -28,11 +29,6 @@ class CGANModel:
         self.img_shape = (self.img_rows, self.img_cols, self.img_channels)
         self.num_classes = 6  # 6
         self.latent_dim = 100
-
-        self.__build_gan()
-        print('Built GAN')
-        self.__build_encoding()
-        print('Built Encoder')
 
     def __build_gan(self):
         optimizer = Adam(0.0002, 0.5)
@@ -221,7 +217,9 @@ class CGANModel:
         with tf.device('/device:GPU:0'):
             self.train(dataset, log_dir)
 
-    def train_phase1(self, dataset, epochs=1000, batch_size=32, sample_int=50, cp_int=200):
+    def train_phase1(self, dataset, epochs=15000000, batch_size=32, sample_int=1000, cp_int=100000):
+        self.__build_gan()
+        print('Built GAN')
 
         # Adversarial ground truths
         valid = np.ones((batch_size, 1))
@@ -263,12 +261,20 @@ class CGANModel:
 
             # If at save interval => save generated image samples
             if epoch % sample_int == 0:
-                self.sample_encoder_images(dataset, epoch)
+                self.sample_generator_images(epoch)
 
             if epoch % cp_int == 0 and epoch > 0:
-                self.save(epoch)
+                self.save_gan(epoch)
 
-    def train_phase2(self, dataset, epochs=100, train_samples=10000, batch_size=32, sample_int=50, cp_int=200):
+        self.save_gan()
+
+    def train_phase2(self, dataset, epochs=100, train_samples=250, batch_size=32, sample_int=50, cp_int=200):
+        # Clean up phase1 models to save VRAM
+        self.discriminator = None
+        gc.collect()
+
+        self.__build_encoding()
+        print('Built Encoder')
 
         # -----------------------
         # Create Fake Dataset
@@ -286,7 +292,10 @@ class CGANModel:
             print("[%d/%d]" % (x.shape[0], train_samples))
 
         for epoch in range(epochs + 1):
-            e_loss = self.encoder.train_on_batch(x, z)
+            idx = np.random.randint(0, x.shape[0], batch_size)
+            x_batch, z_batch = x[idx], z[idx]
+
+            e_loss = self.encoder.train_on_batch(x_batch, z_batch)
 
             # Plot the progress
             print("%d [E loss: %f]" % (epoch, e_loss))
@@ -296,7 +305,9 @@ class CGANModel:
                 self.sample_encoder_images(dataset, epoch)
 
             if epoch % cp_int == 0 and epoch > 0:
-                self.save(epoch)
+                self.save_encoding(epoch)
+
+        self.save_encoding()
 
     def sample_generator_images(self, epoch):
         r, c = 2, self.num_classes // 2
@@ -312,7 +323,7 @@ class CGANModel:
         cnt = 0
         for i in range(r):
             for j in range(c):
-                axs[i, j].imshow(gen_imgs[cnt, :, :, 0], cmap='gray')
+                axs[i, j].imshow(gen_imgs[cnt, ...])
                 axs[i, j].set_title("Label: %d" % np.argmax(sampled_labels[cnt]))
                 axs[i, j].axis('off')
                 cnt += 1
@@ -354,11 +365,11 @@ class CGANModel:
         for i in range(r):
             for j in range(c):
                 if cnt % 2 == 0:
-                    axs[i, j].imshow(imgs[(cnt // 2), :, :, 0], cmap='gray')
+                    axs[i, j].imshow(imgs[(cnt // 2), ...])
                     axs[i, j].set_title("O: %d" % np.argmax(labels[cnt // 2]))
                     axs[i, j].axis('off')
                 else:
-                    axs[i, j].imshow(gen_imgs[(cnt // 2), :, :, 0], cmap='gray')
+                    axs[i, j].imshow(gen_imgs[(cnt // 2), ...])
                     axs[i, j].set_title("G: %d" % np.argmax(labels[cnt // 2]))
                     axs[i, j].axis('off')
                 cnt += 1
@@ -381,9 +392,11 @@ class CGANModel:
         # Clean up local file
         os.remove(filename)
 
-    def save(self, epoch=None):
+    def save_gan(self, epoch=None):
         self.save_model(self.generator, 'generator' + ('-' + str(epoch) if epoch else ''))
         self.save_model(self.discriminator, 'discriminator' + ('-' + str(epoch) if epoch else ''))
+
+    def save_encoding(self, epoch=None):
         self.save_model(self.encoder, 'encoder' + ('-' + str(epoch) if epoch else ''))
 
     def save_model(self, model, name):
