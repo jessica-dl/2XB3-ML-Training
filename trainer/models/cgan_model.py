@@ -35,7 +35,7 @@ class CGANModel:
 
         # Build and compile the discriminator
         self.discriminator = self.__build_discriminator()
-        self.discriminator.compile(loss=['binary_crossentropy'],
+        self.discriminator.compile(loss=['mse'],
                                    optimizer=optimizer,
                                    metrics=['accuracy'])
 
@@ -217,13 +217,13 @@ class CGANModel:
         with tf.device('/device:GPU:0'):
             self.train(dataset, log_dir)
 
-    def train_phase1(self, dataset, epochs=15000000, batch_size=32, sample_int=1000, cp_int=100000):
+    def train_phase1(self, dataset, epochs=10000000, batch_size=32, sample_int=1000, cp_int=50000):
         self.__build_gan()
         print('Built GAN')
 
         # Adversarial ground truths
-        valid = np.ones((batch_size, 1))
-        fake = np.zeros((batch_size, 1))
+        valid = np.zeros((batch_size, 1))
+        fake = np.ones((batch_size, 1))
 
         for epoch in range(epochs + 1):
 
@@ -238,12 +238,16 @@ class CGANModel:
             # Sample noise as generator input
             noise = np.random.normal(0, 1, (batch_size, self.latent_dim))
 
+            # Use noisy labels for discriminator training
+            valid_noise = np.random.normal(0, 0.1, (batch_size, 1))
+            fake_noise = np.random.normal(0.9, 1.0, (batch_size, 1))
+
             # Generate a half batch of new images
             gen_imgs = self.generator.predict([noise, labels])
 
             # Train the discriminator
-            d_loss_real = self.discriminator.train_on_batch([imgs, labels], valid)
-            d_loss_fake = self.discriminator.train_on_batch([gen_imgs, labels], fake)
+            d_loss_real = self.discriminator.train_on_batch([imgs, labels], valid_noise)
+            d_loss_fake = self.discriminator.train_on_batch([gen_imgs, labels], fake_noise)
             d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
 
             # ---------------------
