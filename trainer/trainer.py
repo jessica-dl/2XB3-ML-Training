@@ -1,5 +1,5 @@
 import argparse
-from trainer.mnist_dataset import Dataset
+from trainer.dataset import Dataset
 from trainer.models.cgan_model import CGANModel
 
 

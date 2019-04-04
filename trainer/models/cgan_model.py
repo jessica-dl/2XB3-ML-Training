@@ -24,13 +24,15 @@ class CGANModel:
 
         self.img_rows = 64
         self.img_cols = 64
-        self.img_channels = 1  # 3
+        self.img_channels = 3  # 3
         self.img_shape = (self.img_rows, self.img_cols, self.img_channels)
-        self.num_classes = 10  # 6
+        self.num_classes = 6  # 6
         self.latent_dim = 100
 
         self.__build_gan()
+        print('Built GAN')
         self.__build_encoding()
+        print('Built Encoder')
 
     def __build_gan(self):
         optimizer = Adam(0.0002, 0.5)
@@ -212,14 +214,14 @@ class CGANModel:
         return model
 
     def train(self, dataset, log_dir):
-        # self.train_phase1(dataset)
+        self.train_phase1(dataset)
         self.train_phase2(dataset)
 
     def train_gpu(self, dataset, log_dir):
         with tf.device('/device:GPU:0'):
             self.train(dataset, log_dir)
 
-    def train_phase1(self, dataset, epochs=10, batch_size=128, checkpoint_interval=10):
+    def train_phase1(self, dataset, epochs=1000, batch_size=32, sample_int=50, cp_int=200):
 
         # Adversarial ground truths
         valid = np.ones((batch_size, 1))
@@ -236,7 +238,7 @@ class CGANModel:
             imgs, labels = dataset.x[idx], dataset.y[idx]
 
             # Sample noise as generator input
-            noise = np.random.normal(0, 1, (batch_size, 100))
+            noise = np.random.normal(0, 1, (batch_size, self.latent_dim))
 
             # Generate a half batch of new images
             gen_imgs = self.generator.predict([noise, labels])
@@ -251,7 +253,7 @@ class CGANModel:
             # ---------------------
 
             # Condition on labels
-            sampled_labels = keras.utils.to_categorical(np.random.randint(0, 10, batch_size), 10)
+            sampled_labels = keras.utils.to_categorical(np.random.randint(0, self.num_classes, batch_size), self.num_classes)
 
             # Train the generator
             g_loss = self.gan.train_on_batch([noise, sampled_labels], valid)
@@ -260,11 +262,13 @@ class CGANModel:
             print("%d [D loss: %f, acc.: %.2f%%] [G loss: %f]" % (epoch, d_loss[0], 100 * d_loss[1], g_loss))
 
             # If at save interval => save generated image samples
-            if epoch % checkpoint_interval == 0 and epoch > 0:
-                self.sample_generator_images(epoch)
+            if epoch % sample_int == 0:
+                self.sample_encoder_images(dataset, epoch)
+
+            if epoch % cp_int == 0 and epoch > 0:
                 self.save(epoch)
 
-    def train_phase2(self, dataset, epochs=2000, train_samples=10000, batch_size=128, checkpoint_interval=10):
+    def train_phase2(self, dataset, epochs=100, train_samples=10000, batch_size=32, sample_int=50, cp_int=200):
 
         # -----------------------
         # Create Fake Dataset
@@ -273,8 +277,8 @@ class CGANModel:
         x = None
         z = None
         while x is None or x.shape[0] < train_samples:
-            noise = np.random.normal(0, 1, (batch_size, 100))
-            sampled_labels = keras.utils.to_categorical(np.random.randint(0, 10, batch_size), 10)
+            noise = np.random.normal(0, 1, (batch_size, self.latent_dim))
+            sampled_labels = keras.utils.to_categorical(np.random.randint(0, self.num_classes, batch_size), self.num_classes)
 
             next_batch = self.generator.predict([noise, sampled_labels])
             x = next_batch if x is None else np.concatenate([x, next_batch])
@@ -288,8 +292,10 @@ class CGANModel:
             print("%d [E loss: %f]" % (epoch, e_loss))
 
             # If at save interval => save generated image samples
-            if epoch % checkpoint_interval == 0 and epoch > 0:
+            if epoch % sample_int == 0:
                 self.sample_encoder_images(dataset, epoch)
+
+            if epoch % cp_int == 0 and epoch > 0:
                 self.save(epoch)
 
     def sample_generator_images(self, epoch):
@@ -330,27 +336,31 @@ class CGANModel:
         os.remove(filename)
 
     def sample_encoder_images(self, dataset, epoch):
-        # TODO REWORK TO ACTUALLY TEST ENCODER
         r, c = 4, 6
 
         # Select a random set of images
-        idx = np.random.randint(0, dataset.x.shape[0], r * c)
+        idx = np.random.randint(0, dataset.x.shape[0], (r * c) // 2)
         imgs, labels = dataset.x[idx], dataset.y[idx]
 
         # Encode and regen images
         z = self.encoder.predict(imgs)
         gen_imgs = self.generator.predict([z, labels])
 
-        # Rescale images 0 - 1
+        # Rescale images from [-1, 1] to [0, 1]
         gen_imgs = 0.5 * gen_imgs + 0.5
 
         fig, axs = plt.subplots(r, c)
         cnt = 0
         for i in range(r):
             for j in range(c):
-                axs[i, j].imshow(gen_imgs[cnt, :, :, 0], cmap='gray')
-                axs[i, j].set_title("Label: %d" % np.argmax(labels[cnt]))
-                axs[i, j].axis('off')
+                if cnt % 2 == 0:
+                    axs[i, j].imshow(imgs[(cnt // 2), :, :, 0], cmap='gray')
+                    axs[i, j].set_title("O: %d" % np.argmax(labels[cnt // 2]))
+                    axs[i, j].axis('off')
+                else:
+                    axs[i, j].imshow(gen_imgs[(cnt // 2), :, :, 0], cmap='gray')
+                    axs[i, j].set_title("G: %d" % np.argmax(labels[cnt // 2]))
+                    axs[i, j].axis('off')
                 cnt += 1
 
         filename = "E%s.png" % str(epoch).zfill(8)
@@ -399,7 +409,7 @@ class CGANModel:
             with file_io.FileIO(filepath, mode='rb') as weights_f:
                 with open('weights.h5', 'wb') as local_weights:
                     local_weights.write(weights_f.read())
-            filepath = 'weight.h5'
+            filepath = 'weights.h5'
 
         model.load_weights(filepath)
 

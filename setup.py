@@ -5,7 +5,7 @@ setup(name='trainer',
       packages=find_packages(),
       description='example to run keras on gcloud ml-engine',
       install_requires=[
-          'tensorflow',
+          'tensorflow-gpu',
           'keras',
           'h5py',
           'numpy',
