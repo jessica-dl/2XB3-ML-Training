@@ -22,7 +22,7 @@ class Dataset:
 
             self.x = (self.x.astype(np.float32) - 127.5) / 127.5
 
-            self.__make_overfit()
+            # self.__make_overfit()
 
             print('Loaded dataset')
             print('X:', self.x.shape)

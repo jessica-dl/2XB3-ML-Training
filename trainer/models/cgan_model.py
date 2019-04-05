@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import os
 import gc
+import cv2
 
 
 class CGANModel:
@@ -213,7 +214,7 @@ class CGANModel:
         with tf.device('/device:GPU:0'):
             self.train(dataset, log_dir)
 
-    def train_phase1(self, dataset, epochs=2000000, batch_size=6, sample_int=1000, cp_int=50000):
+    def train_phase1(self, dataset, epochs=15000000, batch_size=32, sample_int=1000, cp_int=100000):
         self.__build_gan()
         print('Built GAN')
 
@@ -244,7 +245,6 @@ class CGANModel:
             # Add noise to images
             imgs += np.random.normal(-0.1, 0.1, imgs.shape)
             gen_imgs += np.random.normal(-0.1, 0.1, gen_imgs.shape)
-
 
             # Train the discriminator
             d_loss_real = self.discriminator.train_on_batch([imgs, labels], valid)
@@ -328,7 +328,7 @@ class CGANModel:
         cnt = 0
         for i in range(r):
             for j in range(c):
-                axs[i, j].imshow(gen_imgs[cnt, ...])
+                axs[i, j].imshow(cv2.cvtColor(gen_imgs[cnt, ...], cv2.COLOR_BGR2RGB))
                 axs[i, j].set_title("Label: %d" % np.argmax(sampled_labels[cnt]))
                 axs[i, j].axis('off')
                 cnt += 1
@@ -370,11 +370,11 @@ class CGANModel:
         for i in range(r):
             for j in range(c):
                 if cnt % 2 == 0:
-                    axs[i, j].imshow(imgs[(cnt // 2), ...])
+                    axs[i, j].imshow(cv2.cvtColor(imgs[(cnt // 2), ...], cv2.COLOR_BGR2RGB))
                     axs[i, j].set_title("O: %d" % np.argmax(labels[cnt // 2]))
                     axs[i, j].axis('off')
                 else:
-                    axs[i, j].imshow(gen_imgs[(cnt // 2), ...])
+                    axs[i, j].imshow(cv2.cvtColor(gen_imgs[(cnt // 2), ...], cv2.COLOR_BGR2RGB))
                     axs[i, j].set_title("G: %d" % np.argmax(labels[cnt // 2]))
                     axs[i, j].axis('off')
                 cnt += 1
