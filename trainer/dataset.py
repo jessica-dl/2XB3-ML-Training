@@ -20,6 +20,8 @@ class Dataset:
             self.y = hf.get('y')[:]
             hf.close()
 
+            self.x = (self.x.astype(np.float32) - 127.5) / 127.5
+
             self.__make_overfit()
 
             print('Loaded dataset')

@@ -31,12 +31,10 @@ class CGANModel:
         self.latent_dim = 100
 
     def __build_gan(self):
-        optimizer = Adam(0.0002, 0.5)
-
         # Build and compile the discriminator
         self.discriminator = self.__build_discriminator()
-        self.discriminator.compile(loss=['mse'],
-                                   optimizer=optimizer,
+        self.discriminator.compile(loss=['binary_crossentropy'],
+                                   optimizer=Adam(0.00005),
                                    metrics=['accuracy'])
 
         # Build the generator
@@ -59,12 +57,12 @@ class CGANModel:
         # Trains generator to fool discriminator
         self.gan = Model([noise, label], valid)
         self.gan.compile(loss=['binary_crossentropy'],
-                         optimizer=optimizer)
+                         optimizer=Adam(0.0005))
 
     def __build_encoding(self):
         self.encoder = self.__build_encoder()
 
-        self.encoder.compile(loss='mse', optimizer=Adam(0.0001, 0.5))
+        self.encoder.compile(loss='mse', optimizer=Adam(0.0001))
 
     def __build_generator(self):
         # Input
@@ -87,6 +85,7 @@ class CGANModel:
         x = Deconv2D(kernel_size=[4, 4], strides=(2, 2), filters=128, padding='same')(x)
         x = BatchNormalization()(x)
         x = ReLU()(x)
+
         # Full Conv 4
         x = Deconv2D(kernel_size=[4, 4], strides=(2, 2), filters=64, padding='same')(x)
         x = BatchNormalization()(x)
@@ -125,19 +124,16 @@ class CGANModel:
 
         # Conv 2
         x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=128, padding='same')(x)
-        x = Dropout(0.4)(x)
         x = BatchNormalization()(x)
         x = LeakyReLU()(x)
 
         # Conv 3
         x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=256, padding='same')(x)
-        x = Dropout(0.4)(x)
         x = BatchNormalization()(x)
         x = LeakyReLU()(x)
 
         # Conv 4
         x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=512, padding='same')(x)
-        x = Dropout(0.4)(x)
         x = BatchNormalization()(x)
         x = LeakyReLU()(x)
 
@@ -248,6 +244,7 @@ class CGANModel:
             # Add noise to images
             imgs += np.random.normal(-0.1, 0.1, imgs.shape)
             gen_imgs += np.random.normal(-0.1, 0.1, gen_imgs.shape)
+
 
             # Train the discriminator
             d_loss_real = self.discriminator.train_on_batch([imgs, labels], valid)
