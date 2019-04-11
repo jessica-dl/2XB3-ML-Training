@@ -6,6 +6,11 @@ import numpy as np
 class Dataset:
 
     def __init__(self, path, local):
+        """
+        Initialize the dataset
+        :param path: Path to the hdf5 dataset file
+        :param local: True if the path is to a local file, False otherwise
+        """
         self.path = path
         self.local = local
 
