@@ -2,7 +2,6 @@ import keras
 from keras.models import Model
 from keras.layers import Input, Concatenate, BatchNormalization, Lambda, Activation, Reshape, Conv2D, Deconv2D, ReLU, \
     LeakyReLU, Dense, Flatten, Dropout
-from keras.datasets import mnist
 from keras.models import load_model
 from keras.optimizers import Adam
 from keras import backend as K
@@ -12,11 +11,20 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import os
 import gc
+import cv2
 
 
 class CGANModel:
 
     def __init__(self, filepath, local=False, generator_weights=None, discriminator_weights=None, encoder_weights=None):
+        """
+        Initializes the CGAN properties but does not construct the Keras models
+        :param filepath: Working dir
+        :param local: True if working dir is local, False otherwise
+        :param generator_weights: Path to initial generator weights or None
+        :param discriminator_weights: Path to initial discriminator weights or None
+        :param encoder_weights: Path to initial encoder weights or None
+        """
         self.filepath = filepath
         self.local = local
         self.generator_weights = generator_weights
@@ -31,12 +39,10 @@ class CGANModel:
         self.latent_dim = 100
 
     def __build_gan(self):
-        optimizer = Adam(0.0002, 0.5)
-
         # Build and compile the discriminator
         self.discriminator = self.__build_discriminator()
         self.discriminator.compile(loss=['binary_crossentropy'],
-                                   optimizer=optimizer,
+                                   optimizer=Adam(0.00005),
                                    metrics=['accuracy'])
 
         # Build the generator
@@ -59,12 +65,12 @@ class CGANModel:
         # Trains generator to fool discriminator
         self.gan = Model([noise, label], valid)
         self.gan.compile(loss=['binary_crossentropy'],
-                         optimizer=optimizer)
+                         optimizer=Adam(0.0005))
 
     def __build_encoding(self):
         self.encoder = self.__build_encoder()
 
-        self.encoder.compile(loss='mse', optimizer=Adam(0.0001, 0.5))
+        self.encoder.compile(loss='mse', optimizer=Adam(0.0001))
 
     def __build_generator(self):
         # Input
@@ -87,6 +93,7 @@ class CGANModel:
         x = Deconv2D(kernel_size=[4, 4], strides=(2, 2), filters=128, padding='same')(x)
         x = BatchNormalization()(x)
         x = ReLU()(x)
+
         # Full Conv 4
         x = Deconv2D(kernel_size=[4, 4], strides=(2, 2), filters=64, padding='same')(x)
         x = BatchNormalization()(x)
@@ -125,19 +132,16 @@ class CGANModel:
 
         # Conv 2
         x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=128, padding='same')(x)
-        x = Dropout(0.4)(x)
         x = BatchNormalization()(x)
         x = LeakyReLU()(x)
 
         # Conv 3
         x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=256, padding='same')(x)
-        x = Dropout(0.4)(x)
         x = BatchNormalization()(x)
         x = LeakyReLU()(x)
 
         # Conv 4
         x = Conv2D(kernel_size=(4, 4), strides=(2, 2), filters=512, padding='same')(x)
-        x = Dropout(0.4)(x)
         x = BatchNormalization()(x)
         x = LeakyReLU()(x)
 
@@ -210,20 +214,41 @@ class CGANModel:
         return model
 
     def train(self, dataset, log_dir):
+        """
+        Perform both phases of training on CPU
+        :param dataset: The dataset object
+        :param log_dir: Filepath to the log directory
+        :return:
+        """
         self.train_phase1(dataset)
         self.train_phase2(dataset)
 
     def train_gpu(self, dataset, log_dir):
+        """
+        Perform both phases of training on GPU
+        :param dataset: The dataset object
+        :param log_dir: Filepath to the log directory
+        :return:
+        """
         with tf.device('/device:GPU:0'):
             self.train(dataset, log_dir)
 
-    def train_phase1(self, dataset, epochs=15000000, batch_size=32, sample_int=1000, cp_int=100000):
+    def train_phase1(self, dataset, epochs=-1, batch_size=32, sample_int=1000, cp_int=100000):
+        """
+        Perform phase1 training (Training of GAN).
+        :param dataset: The dataset object
+        :param epochs: Number of epochs (in this case epoch = batch)
+        :param batch_size: Number of samples per batch
+        :param sample_int: Frequency (in epochs) of samples written to disk
+        :param cp_int: Frequency (in epochs) of weight save checkpoints
+        :return:
+        """
         self.__build_gan()
         print('Built GAN')
 
         # Adversarial ground truths
-        valid = np.ones((batch_size, 1))
-        fake = np.zeros((batch_size, 1))
+        valid = np.zeros((batch_size, 1))
+        fake = np.ones((batch_size, 1))
 
         for epoch in range(epochs + 1):
 
@@ -238,8 +263,16 @@ class CGANModel:
             # Sample noise as generator input
             noise = np.random.normal(0, 1, (batch_size, self.latent_dim))
 
+            # Use noisy labels for discriminator training
+            # valid_noise = np.random.normal(0, 0.1, (batch_size, 1))
+            # fake_noise = np.random.normal(0.9, 1.0, (batch_size, 1))
+
             # Generate a half batch of new images
             gen_imgs = self.generator.predict([noise, labels])
+
+            # Add noise to images
+            imgs += np.random.normal(-0.1, 0.1, imgs.shape)
+            gen_imgs += np.random.normal(-0.1, 0.1, gen_imgs.shape)
 
             # Train the discriminator
             d_loss_real = self.discriminator.train_on_batch([imgs, labels], valid)
@@ -261,14 +294,24 @@ class CGANModel:
 
             # If at save interval => save generated image samples
             if epoch % sample_int == 0:
-                self.sample_generator_images(epoch)
+                self.__sample_generator_images(epoch)
 
             if epoch % cp_int == 0 and epoch > 0:
                 self.save_gan(epoch)
 
         self.save_gan()
 
-    def train_phase2(self, dataset, epochs=100, train_samples=250, batch_size=32, sample_int=50, cp_int=200):
+    def train_phase2(self, dataset, epochs=5000000, train_samples=100000, batch_size=32, sample_int=1000, cp_int=1000000):
+        """
+        Perform phase2 training (Training of Encoder).
+        :param dataset: The dataset object
+        :param epochs: Number of epochs (in this case epoch = batch)
+        :param train_samples: Number of samples to generate in the fake {(z*, x')} dataset.
+        :param batch_size: Number of samples per batch
+        :param sample_int: Frequency (in epochs) of samples written to disk
+        :param cp_int: Frequency (in epochs) of weight save checkpoints
+        :return:
+        """
         # Clean up phase1 models to save VRAM
         self.discriminator = None
         gc.collect()
@@ -298,18 +341,19 @@ class CGANModel:
             e_loss = self.encoder.train_on_batch(x_batch, z_batch)
 
             # Plot the progress
-            print("%d [E loss: %f]" % (epoch, e_loss))
+            if epoch % 10 == 0:
+                print("%d [E loss: %f]" % (epoch, e_loss))
 
             # If at save interval => save generated image samples
             if epoch % sample_int == 0:
-                self.sample_encoder_images(dataset, epoch)
+                self.__sample_encoder_images(dataset, epoch)
 
             if epoch % cp_int == 0 and epoch > 0:
                 self.save_encoding(epoch)
 
         self.save_encoding()
 
-    def sample_generator_images(self, epoch):
+    def __sample_generator_images(self, epoch):
         r, c = 2, self.num_classes // 2
         noise = np.random.normal(0, 1, (r * c, self.latent_dim))
         sampled_labels = keras.utils.to_categorical(np.arange(0, self.num_classes), self.num_classes)
@@ -323,7 +367,7 @@ class CGANModel:
         cnt = 0
         for i in range(r):
             for j in range(c):
-                axs[i, j].imshow(gen_imgs[cnt, ...])
+                axs[i, j].imshow(cv2.cvtColor(gen_imgs[cnt, ...], cv2.COLOR_BGR2RGB))
                 axs[i, j].set_title("Label: %d" % np.argmax(sampled_labels[cnt]))
                 axs[i, j].axis('off')
                 cnt += 1
@@ -346,7 +390,7 @@ class CGANModel:
         # Clean up local file
         os.remove(filename)
 
-    def sample_encoder_images(self, dataset, epoch):
+    def __sample_encoder_images(self, dataset, epoch):
         r, c = 4, 6
 
         # Select a random set of images
@@ -359,17 +403,18 @@ class CGANModel:
 
         # Rescale images from [-1, 1] to [0, 1]
         gen_imgs = 0.5 * gen_imgs + 0.5
+        imgs = 0.5 * imgs + 0.5
 
         fig, axs = plt.subplots(r, c)
         cnt = 0
         for i in range(r):
             for j in range(c):
                 if cnt % 2 == 0:
-                    axs[i, j].imshow(imgs[(cnt // 2), ...])
+                    axs[i, j].imshow(cv2.cvtColor(imgs[(cnt // 2), ...], cv2.COLOR_BGR2RGB))
                     axs[i, j].set_title("O: %d" % np.argmax(labels[cnt // 2]))
                     axs[i, j].axis('off')
                 else:
-                    axs[i, j].imshow(gen_imgs[(cnt // 2), ...])
+                    axs[i, j].imshow(cv2.cvtColor(gen_imgs[(cnt // 2), ...], cv2.COLOR_BGR2RGB))
                     axs[i, j].set_title("G: %d" % np.argmax(labels[cnt // 2]))
                     axs[i, j].axis('off')
                 cnt += 1
@@ -393,13 +438,23 @@ class CGANModel:
         os.remove(filename)
 
     def save_gan(self, epoch=None):
-        self.save_model(self.generator, 'generator' + ('-' + str(epoch) if epoch else ''))
-        self.save_model(self.discriminator, 'discriminator' + ('-' + str(epoch) if epoch else ''))
+        """
+        Write the GAN architecture and weights to file
+        :param epoch: If not None epoch qualifies the output files to be from a specific epoch during training
+        :return:
+        """
+        self.__save_model(self.generator, 'generator' + ('-' + str(epoch) if epoch else ''))
+        self.__save_model(self.discriminator, 'discriminator' + ('-' + str(epoch) if epoch else ''))
 
     def save_encoding(self, epoch=None):
-        self.save_model(self.encoder, 'encoder' + ('-' + str(epoch) if epoch else ''))
+        """
+        Write the Encoder architecture and weights to file
+        :param epoch: If not None epoch qualifies the output files to be from a specific epoch during training
+        :return:
+        """
+        self.__save_model(self.encoder, 'encoder' + ('-' + str(epoch) if epoch else ''))
 
-    def save_model(self, model, name):
+    def __save_model(self, model, name):
         filename = name + '.h5'
 
         # Local dirs are not automatically created

@@ -9,9 +9,9 @@ then
         --region=us-east1 \
         --config=trainer/cloudml-gpu.yaml \
         -- \
-        --dataset_path=gs://cs2xb3_ml/images_ages.hdf5
-        #--generator_weights=gs://cs2xb3_ml/generator.h5 \
-        #--discriminator_weights=gs://cs2xb3_ml/discriminator.h5
+        --dataset_path=gs://cs2xb3_ml/images_ages.hdf5 \
+        --generator_weights=gs://cs2xb3_ml/generator-1000000.h5 \
+        --discriminator_weights=gs://cs2xb3_ml/discriminator-1000000.h5
 
 else
     echo "Must include JOB ID"

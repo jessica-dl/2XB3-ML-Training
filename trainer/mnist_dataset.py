@@ -6,8 +6,12 @@ from keras.datasets import mnist
 class Dataset:
 
     def __init__(self, path, local):
-        self.path = path
-        self.local = local
+        """
+        Initialize the MNIST dataset.
+        Parameters path and local are only included to fit the interface of Dataset
+        :param path: Ignored
+        :param local: Ignored
+        """
 
         (x, y), (_, _) = mnist.load_data()
 
